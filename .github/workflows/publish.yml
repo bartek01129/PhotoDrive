@@ -1,0 +1,163 @@
+name: Build, Publish and Deploy Docker Image
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "core/src/main/**"
+      - "core/Dockerfile"
+      - "core/build.gradle"
+      - "core/settings.gradle"
+      - "core/gradle/**"
+      - "docker-compose.prod.yml"
+      - "frontend/src/**"
+      - "frontend/Dockerfile"
+      - "frontend/package.json"
+      - "frontend/nginx.conf"
+      - ".github/workflows/**"
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'core/src/main/**'
+              - 'core/Dockerfile'
+              - 'core/build.gradle'
+              - 'core/settings.gradle'
+              - 'core/gradle/**'
+              - 'docker-compose.prod.yml'
+            frontend:
+              - 'frontend/src/**'
+              - 'frontend/Dockerfile'
+              - 'frontend/package.json'
+              - 'frontend/nginx.conf'
+
+  build-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./core/
+          file: ./core/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/eds3l:photodrive
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+  build-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./frontend/
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/eds3l:photodrive-frontend
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    needs: [build-backend, build-frontend]
+    if: |
+      always() &&
+      needs.build-backend.result  != 'failure' &&
+      needs.build-frontend.result != 'failure' &&
+      (needs.build-backend.result == 'success' || needs.build-frontend.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy docker-compose to VPS
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "docker-compose.prod.yml"
+          target: "/home/${{ secrets.USERNAME }}/photodrive"
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1
+        env:
+          VPS_USERNAME: ${{ secrets.USERNAME }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DATASOURCE_PASSWORD: ${{ secrets.DATASOURCE_PASSWORD }}
+          DATASOURCE_URL: ${{ secrets.DATASOURCE_URL }}
+          DATASOURCE_USERNAME: ${{ secrets.DATASOURCE_USERNAME }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          APP_DIR: ${{ secrets.DIR }}
+          APP_TEMP: ${{ secrets.TEMP }}
+          TOKEN_SECRETKEY: ${{ secrets.TOKEN_SECRETKEY }}
+          ORG_MAX_SIZE: ${{ secrets.ORG_MAX_SIZE }}
+          SWAGGER_USER: ${{ secrets.SWAGGER_USER }}
+          SWAGGER_PASSWORD: ${{ secrets.SWAGGER_PASSWORD }}
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: VPS_USERNAME,DOCKER_TOKEN,DOCKER_USERNAME,DATASOURCE_PASSWORD,DATASOURCE_URL,DATASOURCE_USERNAME,MAIL_HOST,MAIL_PASSWORD,MAIL_USERNAME,APP_DIR,APP_TEMP,TOKEN_SECRETKEY,ORG_MAX_SIZE,SWAGGER_USER,SWAGGER_PASSWORD
+
+          script: |
+            echo "$DOCKER_TOKEN" | docker login docker.io -u "$DOCKER_USERNAME" --password-stdin
+
+            export DATASOURCE_PASSWORD="$DATASOURCE_PASSWORD"
+            export DATASOURCE_URL="$DATASOURCE_URL"
+            export DATASOURCE_USERNAME="$DATASOURCE_USERNAME"
+            export MAIL_HOST="$MAIL_HOST"
+            export MAIL_PASSWORD="$MAIL_PASSWORD"
+            export MAIL_USERNAME="$MAIL_USERNAME"
+            export DIR="$APP_DIR"
+            export STORAGE_TEMP_PATH="$APP_TEMP"
+            export TOKEN_SECRETKEY="$TOKEN_SECRETKEY"
+            export ORG_MAX_SIZE="$ORG_MAX_SIZE"
+            export SWAGGER_USER="$SWAGGER_USER"
+            export SWAGGER_PASSWORD="$SWAGGER_PASSWORD"
+
+            cd /home/$VPS_USERNAME/photodrive
+            docker pull docker.io/$DOCKER_USERNAME/eds3l:photodrive
+            docker pull docker.io/$DOCKER_USERNAME/eds3l:photodrive-frontend
+            docker pull busybox:1.36
+
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans --pull never

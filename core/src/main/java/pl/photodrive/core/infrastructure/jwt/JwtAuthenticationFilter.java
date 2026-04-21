@@ -1,0 +1,119 @@
+package pl.photodrive.core.infrastructure.jwt;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+import org.springframework.util.AntPathMatcher;
+import org.springframework.web.filter.OncePerRequestFilter;
+import pl.photodrive.core.application.port.token.TokenDecoder;
+import pl.photodrive.core.infrastructure.exception.ExpiredTokenException;
+import pl.photodrive.core.infrastructure.exception.InvalidTokenException;
+
+import java.io.IOException;
+
+@Component
+@RequiredArgsConstructor
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
+    private static final String COOKIE_NAME = "pd_at";
+    private static final String[] SKIP_PATHS = {
+            "/api/auth/**",
+            "/api/public/**",
+            "/v3/api-docs/**",
+            "/swagger-ui/**",
+            "/swagger-ui.html",
+            "/favicon.ico",
+            "/error"
+    };
+    private final TokenDecoder tokenDecoder;
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        String method = request.getMethod();
+
+        if ("OPTIONS".equalsIgnoreCase(method)) {
+            return true;
+        }
+
+        for (String skipPath : SKIP_PATHS) {
+            if (PATH_MATCHER.match(skipPath, path)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+        String token = extractToken(request);
+
+        if (token == null || token.isBlank()) {
+            sendUnauthorized(response, "Brak tokena uwierzytelniającego.");
+            return;
+        }
+
+        try {
+            var authentication = tokenDecoder.parse(token);
+            var authorities = authentication.roles().stream()
+                    .map(r -> new SimpleGrantedAuthority("ROLE_" + r.name()))
+                    .toList();
+
+            var principal = new UsernamePasswordAuthenticationToken(
+                    authentication.userId().value().toString(),
+                    null,
+                    authorities);
+
+            SecurityContextHolder.getContext().setAuthentication(principal);
+            filterChain.doFilter(request, response);
+
+        } catch (ExpiredTokenException e) {
+            sendUnauthorized(response, "Token wygasł.");
+        } catch (InvalidTokenException e) {
+            sendUnauthorized(response, "Nieprawidłowy token.");
+        }
+    }
+
+    private void sendUnauthorized(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(String.format("""
+                {
+                  "status": 401,
+                  "error": "UNAUTHORIZED",
+                  "message": "%s"
+                }
+                """, message));
+    }
+
+    private String extractToken(HttpServletRequest request) {
+        String bearerToken = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
+            return bearerToken.substring(7);
+        }
+
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (COOKIE_NAME.equals(cookie.getName())) {
+                    String cookieValue = cookie.getValue();
+                    if (cookieValue.startsWith("Bearer ")) {
+                        return cookieValue.substring(7);
+                    }
+                    return cookieValue;
+                }
+            }
+        }
+
+        return null;
+    }
+}

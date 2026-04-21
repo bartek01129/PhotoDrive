@@ -1,0 +1,123 @@
+package pl.photodrive.core.application.handler;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
+import pl.photodrive.core.application.exception.StorageOperationException;
+import pl.photodrive.core.application.port.file.FileStoragePort;
+import pl.photodrive.core.application.port.mail.MailSenderPort;
+import pl.photodrive.core.domain.event.album.*;
+
+import java.time.Instant;
+import java.time.ZoneId;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class AlbumStructureEventHandler {
+    private final FileStoragePort fileStoragePort;
+    private final MailSenderPort mailSenderPort;
+
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    public void handleAdminAlbumCreated(AdminAlbumCreated event) {
+        log.info("Handling AdminAlbumCreated event for album: {}", event.albumName());
+
+        try {
+            fileStoragePort.createAdminAlbum(event.albumName());
+            log.info("Successfully created admin album folder: {}", event.albumName());
+        } catch (Exception e) {
+            throw new StorageOperationException("Failed to create admin album");
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    public void handlePhotographCreateAlbum(PhotographCreateAlbum event) {
+        log.info("Handling PhotographCreateAlbum event for album: {} by photographer: {}",
+                event.name(),
+                event.photographerEmail());
+
+        try {
+            fileStoragePort.createClientAlbum(event.name(), event.photographerEmail());
+            log.info("Successfully created client album folder: {}/{}",
+                    event.photographerEmail(),
+                    event.name());
+        } catch (Exception e) {
+            throw new StorageOperationException("Failed to create client album");
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handlePhotographDeleteAlbum(PhotographRemoveAlbum event) {
+        log.info("Handling PhotographRemove event for album: {}", event.albumPath());
+
+        try {
+            fileStoragePort.deleteFolder(event.albumPath());
+            log.info("Successfully deleted folder");
+        } catch (Exception e) {
+            throw new StorageOperationException("Failed to remove folder");
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    public void handleRenameFile(FileRenamedInAlbum event) {
+        log.info("File renamed");
+
+        try {
+            fileStoragePort.renameFile(event.path(), event.oldFileName().value(), event.newFileName().value());
+        } catch (Exception e) {
+            throw new StorageOperationException("Failed to rename file");
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleRemoveFile(FileRemovedFromAlbum event) {
+        log.info("File removed");
+        try {
+            fileStoragePort.deleteFile(event.path(), event.fileName());
+        } catch (Exception e) {
+            throw new StorageOperationException("Failed to remove file");
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleTtdSet(TtdSet event) {
+        log.info("Ttd set!");
+        Instant now = Instant.now();
+
+        String date = now.atZone(ZoneId.of("Europe/Warsaw")).toLocalDate().toString();
+        String time = now.atZone(ZoneId.of("Europe/Warsaw")).toLocalTime().toString();
+
+
+        String ttdSetTemplate = mailSenderPort.loadResourceAsString("templates/email/ttd-set.html").replace("{{date}}",
+                date).replace("{{time}}", time);
+
+        mailSenderPort.send(event.email(), "Twoje zdjęcia mają ograniczony czas", ttdSetTemplate);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleRemoveExpiredAlbum(ExpiredAlbumRemoved event) {
+        log.info("Removing expired album");
+        fileStoragePort.deleteFolder(event.path().value());
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleChangeFileVisibility(FileVisibleStatusChanged event) {
+        log.info("Visibility changed");
+
+        String filesVisibleTemplate = mailSenderPort.loadResourceAsString("templates/email/files-visible-status.html").replace(
+                "{{fileCount}}",
+                String.valueOf(event.sizeList()));
+
+        mailSenderPort.send(event.userEmail().value(), "Twoje pliki są widoczne", filesVisibleTemplate);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    public void handleSwapFile(FileSwaped event) {
+        log.info("Swap file event started!");
+
+        fileStoragePort.swapFile(event.albumPath().value(),event.targetAlbumPath().value(),event.fileName().value());
+    }
+
+}

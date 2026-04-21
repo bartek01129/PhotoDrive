@@ -1,0 +1,61 @@
+spring:
+  mail:
+    host: ${MAIL_HOST}
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    protocol: smtp
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  datasource:
+    url: ${DATASOURCE_URL}
+    username: ${DATASOURCE_USERNAME}
+    password: ${DATASOURCE_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      max-lifetime: 600000
+
+  jpa:
+    database-platform: org.hibernate.dialect.MySQL8Dialect
+    hibernate:
+      ddl-auto: update
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    properties:
+      hibernate:
+        type:
+          preferred_uuid_jdbc_type: VARCHAR
+        temp:
+          use_jdbc_metadata_defaults: false
+    open-in-view: false
+    show-sql: false
+
+  servlet:
+    multipart:
+      max-file-size: "2GB"
+      max-request-size: "2GB"
+
+jwt:
+  secret: ${TOKEN_SECRETKEY}
+
+storage:
+  dir: ${DIR}
+  temp:
+    path: ${STORAGE_TEMP_PATH}
+
+ORG_MAX_SIZE: ${ORG_MAX_SIZE}
+
+app:
+  base-url: ${APP_BASE_URL:http://localhost:8080}
+  cookie:
+    secure: ${COOKIE_SECURE:true}
+
+SWAGGER:
+  LOGIN:
+    USER: ${SWAGGER_USER}
+    PASSWORD: ${SWAGGER_PASSWORD}

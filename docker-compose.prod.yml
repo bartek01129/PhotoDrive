@@ -1,0 +1,93 @@
+services:
+  # One-shot init container: makes sure the host bind-mount directories exist
+  # and are owned by the non-root UID (10001) used inside the backend image.
+  # Without this, a fresh VPS ends up with root-owned mount points and the
+  # backend cannot write uploads (→ "Failed to upload file").
+  photodrive-init:
+    image: busybox:1.36
+    pull_policy: missing
+    container_name: photodrive-init
+    restart: "no"
+    user: "0:0"
+    command: >
+      sh -c "mkdir -p /data /temp && chown -R 10001:10001 /data /temp && chmod 750 /data /temp"
+    volumes:
+      - /home/docker-user/photodrive/data:/data
+      - /home/docker-user/photodrive/temp:/temp
+
+  photodrive-backend:
+    image: docker.io/edsel7/eds3l:photodrive
+    container_name: photodrive-backend
+    restart: unless-stopped
+    depends_on:
+      photodrive-init:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+    environment:
+      DATASOURCE_PASSWORD: ${DATASOURCE_PASSWORD}
+      DATASOURCE_URL: ${DATASOURCE_URL}
+      DATASOURCE_USERNAME: ${DATASOURCE_USERNAME}
+      MAIL_HOST: ${MAIL_HOST}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      DIR: ${DIR}
+      STORAGE_TEMP_PATH: /app/photodrive-temp
+      TOKEN_SECRETKEY: ${TOKEN_SECRETKEY}
+      ORG_MAX_SIZE: ${ORG_MAX_SIZE}
+      SWAGGER_USER: ${SWAGGER_USER}
+      SWAGGER_PASSWORD: ${SWAGGER_PASSWORD}
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      COOKIE_SECURE: "true"
+      APP_BASE_URL: "https://photodrive.dev"
+      SPRING_PROFILES_ACTIVE: prod
+    volumes:
+      - /home/docker-user/photodrive/data:/app/photodrive
+      - /home/docker-user/photodrive/temp:/app/photodrive-temp
+    networks:
+      - photodrive-internal
+    labels:
+      - "traefik.enable=false"
+
+  photodrive-frontend:
+    image: docker.io/edsel7/eds3l:photodrive-frontend
+    container_name: photodrive-frontend
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+    depends_on:
+      - photodrive-backend
+    networks:
+      - web
+      - photodrive-internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_proxy_network"
+      - "traefik.http.routers.photodrive.rule=Host(`photodrive.dev`)"
+      - "traefik.http.routers.photodrive.entrypoints=websecure"
+      - "traefik.http.routers.photodrive.tls=true"
+      - "traefik.http.routers.photodrive.tls.certresolver=my-resolver"
+      - "traefik.http.routers.photodrive.service=photodrive"
+      - "traefik.http.services.photodrive.loadbalancer.server.port=8080"
+      # HTTP → HTTPS redirect
+      - "traefik.http.routers.photodrive-http.rule=Host(`photodrive.dev`)"
+      - "traefik.http.routers.photodrive-http.entrypoints=web"
+      - "traefik.http.routers.photodrive-http.middlewares=photodrive-redirect-https"
+      - "traefik.http.middlewares.photodrive-redirect-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.photodrive-redirect-https.redirectscheme.permanent=true"
+
+networks:
+  web:
+    external: true
+    name: traefik_proxy_network
+  photodrive-internal:
