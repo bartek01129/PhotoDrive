@@ -6,40 +6,40 @@ Jedna aplikacja SPA obsługuje trzy doświadczenia: **stronę publiczną** (wizy
 
 Backend zbudowano w oparciu o **Architekturę Heksagonalną (Ports & Adapters)** oraz zasady **Domain-Driven Design (DDD)**.
 
-## 🧱 Monorepo
+##  Monorepo
 - `core/` — backend: Spring Boot, REST API, logika domenowa, magazyn plików, baza danych
 - `frontend/` — frontend: React + Vite (SPA: strona publiczna + panel admin/fotograf + strefa klienta)
 - `docker-compose.yml` / `docker-compose.prod.yml` — uruchomienie lokalne / produkcyjne
 - `.github/workflows/` — CI (testy i lint) oraz CD (build obrazów i deploy)
 
-## 🚀 Kluczowe funkcjonalności
+##  Kluczowe funkcjonalności
 
 System obsługuje trzy główne role użytkowników:
 
-### 📸 Fotograf (PHOTOGRAPHER)
+###  Fotograf (PHOTOGRAPHER)
 - Zarządzanie albumami klientów (tworzenie, edycja, usuwanie).
 - Upload zdjęć (chunkowany, z wykrywaniem kolizji nazw) i pobieranie ZIP.
 - Sterowanie **widocznością** zdjęć — nowe zdjęcie w albumie klienta jest domyślnie ukryte, fotograf najpierw kuratoruje, potem udostępnia.
 - **Znak wodny** oraz **TTD** (czas życia albumu, po którym scheduler go usuwa).
 - Zakładanie kont klientom (hasło startowe generuje serwer i wysyła mailem).
 
-### 👤 Klient (CLIENT)
+###  Klient (CLIENT)
 - Bezpieczny dostęp do **tylko udostępnionych** zdjęć ze swoich albumów po zalogowaniu.
 - Pobieranie zdjęć (pojedynczo / jako archiwum ZIP).
 - Wymuszona zmiana hasła przy pierwszym logowaniu (egzekwowana po stronie serwera).
 
-### 🛡️ Administrator (ADMIN)
+###  Administrator (ADMIN)
 - Zarządzanie kontami i rolami użytkowników.
 - Tworzenie albumów administracyjnych i **publikacja portfolio** — każdy publiczny album to zakładka na stronie, z własną etykietą (`displayName`, pełny Unicode) i kolejnością (`displayOrder`).
 - **Strona wizytówka** — podmiana zdjęć stałych sekcji strony publicznej (hero, intro, CTA, bio, sprzęt, tła ekranów logowania) bez wdrożenia.
 - Zarządzanie globalnym **znakiem wodnym platformy**.
 - Automatyczna wysyłka danych dostępowych do nowych użytkowników (szablony e-mail).
 
-### 🌐 Bez logowania
+###  Bez logowania
 - Strona główna, portfolio (zakładki generowane z publicznych albumów), „o mnie", formularz kontaktowy.
 - Publiczne warianty zdjęć są zawsze zmniejszane (cap **2560 px** dłuższego boku) — oryginały nie wychodzą na zewnątrz.
 
-## 🏗️ Architektura i technologie
+##  Architektura i technologie
 
 ### Backend (`core/`)
 - **Język:** Java 21
@@ -60,7 +60,7 @@ System obsługuje trzy główne role użytkowników:
 - `infrastructure` — implementacje techniczne (JPA/MySQL, magazyn plików, mail, JWT, security)
 - `presentation` — kontrolery REST API
 
-## ⚙️ Uruchomienie
+##  Uruchomienie
 
 ### Wymagania wstępne
 - JDK 21
@@ -116,7 +116,7 @@ npm run build         # tsc -b (typuje także testy) + produkcyjny build do dist
 
 Dokumentacja API: **Swagger UI** pod `/swagger-ui` (chronione osobnym logowaniem — `SWAGGER_USER` / `SWAGGER_PASSWORD`).
 
-## 🧪 Testy
+##  Testy
 
 | | Backend (`core/`) | Frontend (`frontend/`) |
 |---|---|---|
@@ -129,7 +129,7 @@ Dokumentacja API: **Swagger UI** pod `/swagger-ui` (chronione osobnym logowaniem
 - Testy integracyjne startują **prawdziwy MySQL 8** w kontenerze, więc `./gradlew check` **wymaga uruchomionego Dockera**. Sprawdzają cały tor HTTP → filtry → domena → baza i dysk, w tym macierz autoryzacji (każdy chroniony endpoint × każda rola).
 - Konwencja jest wspólna dla obu stacków: nazwa testu opisuje **regułę biznesową**, w środku bloki `Given` / `When` / `Then` — przebieg testów czyta się jak specyfikacja zachowań.
 
-## 🔄 CI/CD
+##  CI/CD
 
 ```
 push → GitHub Actions
